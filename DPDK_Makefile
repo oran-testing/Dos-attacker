@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: BSD-3-Clause
+# Copyright 2018 Jonathan Ribas, FraudBuster. All rights reserved.
+
+ifeq ($(RTE_SDK),)
+$(error "Please define RTE_SDK environment variable")
+endif
+
+# Default target, can be overriden by command line or environment
+RTE_TARGET ?= x86_64-native-linuxapp-gcc
+
+include $(RTE_SDK)/mk/rte.vars.mk
+
+# binary name
+APP 	=	cufh-attacker
+
+CFLAGS 	+=	-O3 -I$(RTE_SRCDIR)
+
+SRCS-y 	:=	src/main.c \
+			src/cpus.c \
+			src/dpdk.c \
+			src/pcap.c \
+			src/utils.c
+
+LDFLAGS	+=	-lm -lnuma
+
+include $(RTE_SDK)/mk/rte.extapp.mk
