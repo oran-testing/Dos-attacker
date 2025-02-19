@@ -1,0 +1,3 @@
+sudo ./build/cufh-attacker --c --src 90:e3:ba:00:12:23 --dst 90:e3:ba:00:12:22 --vlan 33 --numacore 0 08:00.1
+
+

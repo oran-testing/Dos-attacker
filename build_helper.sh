@@ -8,12 +8,12 @@ fi
 SCRIPT_DIR=$(realpath .)
 
 if [ -e build ]; then
-	echo "build exists exiting..."
-	exit 0
+	echo "build exists: cleaning up..."
+	rm -r build dpdk-stable-19.11.14
 fi
 
 if [ -z DPDK_Makefile ]; then
-	echo "No makefile exiting..."
+	echo "Missing DPDK_Makefile exiting..."
 	exit 1
 fi
 
