@@ -670,7 +670,8 @@ int main(const int ac, char **av) {
   }
 
   opts.trace = output;
-  opts.trace = "/home/secureslicing/Dos-attacker/Traffic/cp_dl_long_10mb.pcap";
+  opts.trace = "/home/secureslicing/Dos-attacker/Traffic/up_dl_short_10mb.pcap";
+  opts.nbruns = 100;
 
   ret = parse_options(ac, av, &opts);
   if (ret) {
