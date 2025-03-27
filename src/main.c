@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <stdbool.h>
 
 #include <rte_ethdev.h>
 
@@ -19,6 +20,37 @@
 #include <time.h>
 
 #define TIME_TO_WAIT 1
+
+struct trace_entry {
+  const char *flag;
+  const char *filepath;
+};
+
+
+struct trace_entry trace_map[] = {
+  {"--cp-dl-long",      "/cp_dl_long_10mb.pcap"},
+  {"--cp-dl-short",     "/cp_dl_short_10mb.pcap"},
+  {"--cp-ul-long",      "/cp_ul_long_10mb.pcap"},
+  {"--cp-ul-short",     "/cp_ul_short_10mb.pcap"},
+  {"--cp-type7",        "/type7.pcap"},
+  {"--cp-1gb-rand",     "/c_plane_64_rand.pcap"},
+  {"--up-dl-short",     "/up_dl_short_10mb.pcap"},
+  {"--up-ul-long",      "/up_ul_long_10mb.pcap"},
+  {"--up-ul-short",     "/up_ul_short_10mb.pcap"},
+  {"--debug",           "/temp.pcap"},
+  {NULL, NULL}
+};
+
+struct trace_entry trace_map_range[] = {
+  {"--cp-dl-long-r",      "/cp_dl_long_1mb.pcap"},
+  {"--cp-dl-short-r",     "/cp_dl_short_1mb.pcap"},
+  {"--cp-ul-long-r",      "/cp_ul_long_1mb.pcap"},
+  {"--cp-ul-short-r",     "/cp_ul_short_1mb.pcap"},
+  {"--up-dl-short-r",     "/up_dl_short_1mb.pcap"},
+  {"--up-ul-long-r",      "/up_ul_long_1mb.pcap"},
+  {"--up-ul-short-r",     "/up_ul_short_1mb.pcap"},
+  {NULL, NULL}
+};
 
 void usage(void) {
   puts(
@@ -115,26 +147,60 @@ char **str_to_pcicards_list(struct cmd_opts *opts, char *pcis) {
   return (list);
 }
 
+// helper to get filepath
+const char* get_filepath(const char *flag, struct trace_entry *map) {
+  for (int i = 0; map[i].flag != NULL; i++) {
+      if (strcmp(map[i].flag, flag) == 0) {
+          return map[i].filepath;
+      }
+  }
+  return NULL;
+}
+
+ // vol_num is argv[i+1]
+ int file_helper(struct cmd_opts *opts, const char *filename, const char *vol_num, bool range){
+    
+  if (!opts || !filename || !vol_num) return EINVAL;
+  
+  strcat(opts->trace, filename); // if no nb runs is specified
+
+  if (!range){
+    if (!strcmp(vol_num, "10")) {
+      opts->nbruns = (!strcmp(filename, "/c_plane_64_rand.pcap")) ? 100 : 1;
+    } else if (!strcmp(vol_num, "100")) {
+      opts->nbruns = 10;
+    } else if (!strcmp(vol_num, "1000")) {
+      opts->nbruns = (!strcmp(filename, "/c_plane_64_rand.pcap")) ? 1 : 100;
+  } else {
+      return EPROTO;
+  }
+  } else if (range){
+      opts->r_active = 1; // if no nb runs is specified
+
+      char vol_copy[128];
+      strncpy(vol_copy, vol_num, sizeof(vol_copy));
+      vol_copy[sizeof(vol_copy) - 1] = '\0';
+
+      char *token = strtok(vol_copy, ",");
+      int j = 0;
+      while (token != NULL && j < 3) {
+          opts->range[j] = atoi(token);
+          token = strtok(NULL, ",");
+          j++;
+      }
+  }
+    return 0;
+
+}
+
+
 
 int parse_options(const int argc, char **argv, struct cmd_opts *opts) {
   int i;
   unsigned int j;
 
-  // char* dir = getenv("PCAP_DIR");
-  // if (dir == NULL) {
-  //     printf("PCAP_DIR is not set\n");
-  //     return 1;
-  // }
-  // printf(dir);
-  // strcpy(opts->trace, dir);
-
-  if (!argv || !opts)
-    return (EINVAL);
-
-  /* if no trace or no pcicard is specified */
-  if (argc < 2)
-    // printf("this error");
-    return (ENOENT);
+  if (!argv || !opts) return (EINVAL);
+  if (argc < 2) return (ENOENT); /* if no trace or no pcicard is specified */
 
   for (i = 1; i < argc - 1; i++) {
 
@@ -143,12 +209,10 @@ int parse_options(const int argc, char **argv, struct cmd_opts *opts) {
       int nc;
 
       /* if no numa core is specified */
-      if (i + 1 >= argc - 1)
-        return (ENOENT);
+      if (i + 1 >= argc - 1) return (ENOENT);
 
       nc = atoi(argv[i + 1]);
-      if (nc < 0 || nc > 2)
-        return (ENOENT);
+      if (nc < 0 || nc > 2) return (ENOENT);
       opts->numacore = (char)nc;
       i++;
       continue;
@@ -164,330 +228,22 @@ int parse_options(const int argc, char **argv, struct cmd_opts *opts) {
       continue;
     }
 
-    if (!strcmp(argv[i], "--cp-dl-long")) {
-      strcat(opts->trace, "/cp_dl_long_10mb.pcap");
-      // strcpy(opts->trace, "cp_dl_10mb_big.pcap");
-      // opts->trace = "cp_dl_10mb_big.pcap";
-      /* if no nb runs is specified */
-      if (i + 1 >= argc - 1)
-        return (ENOENT);
-      /* for each choosen volume */
-      if (!strcmp((argv[i + 1]), "10")) {
-        opts->nbruns = 1;
-      } else if (!strcmp((argv[i + 1]), "100")) {
-        opts->nbruns = 10;
-      } else if (!strcmp((argv[i + 1]), "1000")) {
-        /* It will have packet drop */
-        opts->nbruns = 100;
-      }
-      // Packet drop value = 105
-      /* else the value is wrong */
-      else {
-        return (EPROTO);
-      }
+    // call the helper function to get filepath
+    const char *filepath = get_filepath(argv[i], trace_map);
+    if (filepath){
+      if (i + 1 >= argc - 1) return (ENOENT);
+      int err = file_helper(opts, filepath, argv[i+1], false);
+      if (err) return err;
       i++;
       continue;
-    } else if (!strcmp(argv[i], "--cp-dl-short")) {
-      strcat(opts->trace, "/cp_dl_short_10mb.pcap");
-      // opts->trace = "cp_ul_10mb_small.pcap";
-      /* if no nb runs is specified */
-      if (i + 1 >= argc - 1)
-        return (ENOENT);
-      /* for each choosen volume */
-      if (!strcmp((argv[i + 1]), "10")) {
-        opts->nbruns = 1;
-      } else if (!strcmp((argv[i + 1]), "100")) {
-        opts->nbruns = 10;
-      } else if (!strcmp((argv[i + 1]), "1000")) {
-        opts->nbruns = 100;
-      }
-      /* else the value is wrong */
-      else {
-        return (EPROTO);
-      }
+   }
+   if (filepath){
+      if (i + 1 >= argc - 1) return (ENOENT);
+      int err = file_helper(opts, filepath, argv[i+1], true);
+      if (err) return err;
       i++;
       continue;
-    } else if (!strcmp(argv[i], "--cp-type7")) {
-      strcat(opts->trace, "/type7.pcap");
-      // opts->trace = "cp_ul_10mb_small.pcap";
-      /* if no nb runs is specified */
-      if (i + 1 >= argc - 1)
-        return (ENOENT);
-      /* for each choosen volume */
-      if (!strcmp((argv[i + 1]), "10")) {
-        opts->nbruns = 1;
-      } else if (!strcmp((argv[i + 1]), "100")) {
-        opts->nbruns = 10;
-      } else if (!strcmp((argv[i + 1]), "1000")) {
-        opts->nbruns = 100;
-      }
-      /* else the value is wrong */
-      else {
-        return (EPROTO);
-      }
-      i++;
-      continue;
-    } else if (!strcmp(argv[i], "--cp-1gb-rand")) {
-      strcat(opts->trace, "/c_plane_64_rand.pcap");
-      // opts->trace = "cp_ul_10mb_small.pcap";
-      /* if no nb runs is specified */
-      if (i + 1 >= argc - 1)
-        return (ENOENT);
-      /* for each choosen volume */
-      if (!strcmp((argv[i + 1]), "1000")) {
-        opts->nbruns = 1;
-      } else if (!strcmp((argv[i + 1]), "100")) {
-        opts->nbruns = 10;
-      } else if (!strcmp((argv[i + 1]), "10")) {
-        opts->nbruns = 100;
-      }
-      /* else the value is wrong */
-      else {
-        return (EPROTO);
-      }
-      i++;
-      continue;
-    } else if (!strcmp(argv[i], "--cp-ul-long")) {
-      strcat(opts->trace, "/cp_ul_long_10mb.pcap");
-      // opts->trace = "cp_ul_10mb_big.pcap";
-      /* if no nb runs is specified */
-      if (i + 1 >= argc - 1)
-        return (ENOENT);
-      /* for each choosen volume */
-      if (!strcmp((argv[i + 1]), "10")) {
-        opts->nbruns = 1;
-      } else if (!strcmp((argv[i + 1]), "100")) {
-        opts->nbruns = 10;
-      } else if (!strcmp((argv[i + 1]), "1000")) {
-        opts->nbruns = 100;
-      }
-      /* else the value is wrong */
-      else {
-        return (EPROTO);
-      }
-      i++;
-      continue;
-    } else if (!strcmp(argv[i], "--cp-ul-short")) {
-      strcat(opts->trace, "/cp_ul_short_10mb.pcap");
-      // opts->trace = "cp_ul_10mb_small.pcap";
-      /* if no nb runs is specified */
-      if (i + 1 >= argc - 1)
-        return (ENOENT);
-      /* for each choosen volume */
-      if (!strcmp((argv[i + 1]), "10")) {
-        opts->nbruns = 1;
-      } else if (!strcmp((argv[i + 1]), "100")) {
-        opts->nbruns = 10;
-      } else if (!strcmp((argv[i + 1]), "1000")) {
-        opts->nbruns = 100;
-      }
-      /* else the value is wrong */
-      else {
-        return (EPROTO);
-      }
-      i++;
-      continue;
-    } else if (!strcmp(argv[i], "--up-dl-short")) {
-      strcat(opts->trace, "/up_dl_short_10mb.pcap");
-      // opts->trace = "up_dl_10mb.pcap";
-      /* if no nb runs is specified */
-      if (i + 1 >= argc - 1)
-        return (ENOENT);
-      /* for each choosen volume */
-      if (!strcmp((argv[i + 1]), "10")) {
-        opts->nbruns = 1;
-      } else if (!strcmp((argv[i + 1]), "100")) {
-        opts->nbruns = 10;
-      } else if (!strcmp((argv[i + 1]), "1000")) {
-        /* It will have packet drop */
-        opts->nbruns = 100;
-      }
-      // Packet drop value = 110
-      /* else the value is wrong */
-      else {
-        return (EPROTO);
-      }
-      i++;
-      continue;
-    } else if (!strcmp(argv[i], "--up-ul-long")) {
-      strcat(opts->trace, "/up_ul_long_10mb.pcap");
-      // opts->trace = "up_ul_10mb.pcap";
-      /* if no nb runs is specified */
-      if (i + 1 >= argc - 1)
-        return (ENOENT);
-      /* for each choosen volume */
-      if (!strcmp((argv[i + 1]), "10")) {
-        opts->nbruns = 1;
-      } else if (!strcmp((argv[i + 1]), "100")) {
-        opts->nbruns = 10;
-      } else if (!strcmp((argv[i + 1]), "1000")) {
-        opts->nbruns = 100;
-      }
-      // Packet drop value = 120
-      /* else the value is wrong */
-      else {
-        return (EPROTO);
-      }
-      i++;
-      continue;
-    } else if (!strcmp(argv[i], "--up-ul-short")) {
-      strcat(opts->trace, "/up_ul_short_10mb.pcap");
-      // opts->trace = "up_ul_10mb.pcap";
-      /* if no nb runs is specified */
-      if (i + 1 >= argc - 1)
-        return (ENOENT);
-      /* for each choosen volume */
-      if (!strcmp((argv[i + 1]), "10")) {
-        opts->nbruns = 1;
-      } else if (!strcmp((argv[i + 1]), "100")) {
-        opts->nbruns = 10;
-      } else if (!strcmp((argv[i + 1]), "1000")) {
-        opts->nbruns = 100;
-      }
-      // Packet drop value = 120
-      /* else the value is wrong */
-      else {
-        return (EPROTO);
-      }
-      i++;
-      continue;
-    } else if (!strcmp(argv[i], "--debug")) {
-      strcat(opts->trace, "/temp.pcap");
-      // opts->trace = "up_ul_10mb.pcap";
-      /* if no nb runs is specified */
-      if (i + 1 >= argc - 1)
-        return (ENOENT);
-      /* for each choosen volume */
-      if (!strcmp((argv[i + 1]), "10")) {
-        opts->nbruns = 1;
-      } else if (!strcmp((argv[i + 1]), "100")) {
-        opts->nbruns = 10;
-      } else if (!strcmp((argv[i + 1]), "1000")) {
-        opts->nbruns = 100;
-      }
-      // Packet drop value = 120
-      /* else the value is wrong */
-      else {
-        return (EPROTO);
-      }
-      i++;
-      continue;
-    }
-
-    /* ADDITION: range-based */
-    else if (!strcmp(argv[i], "--cp-dl-long-r")) {
-      strcat(opts->trace, "/cp_dl_long_1mb.pcap");
-      // opts->trace = "cp_dl_1mb_big.pcap";
-      opts->r_active = 1;
-      /* if no nb runs is specified */
-      if (i + 1 >= argc - 1)
-        return (ENOENT);
-      char *token = strtok((argv[i + 1]), ",");
-      int j = 0;
-      while (token != NULL && j < 3) {
-        opts->range[j] = atoi(token);
-        token = strtok(NULL, ",");
-        j++;
-      }
-      i++;
-      continue;
-    } else if (!strcmp(argv[i], "--cp-dl-short-r")) {
-      strcat(opts->trace, "/cp_dl_short_1mb.pcap");
-      // opts->trace = "cp_ul_1mb_small.pcap";
-      opts->r_active = 1;
-      /* if no nb runs is specified */
-      if (i + 1 >= argc - 1)
-        return (ENOENT);
-      char *token = strtok((argv[i + 1]), ",");
-      int j = 0;
-      while (token != NULL && j < 3) {
-        opts->range[j] = atoi(token);
-        token = strtok(NULL, ",");
-        j++;
-      }
-      i++;
-      continue;
-    } else if (!strcmp(argv[i], "--cp-ul-long-r")) {
-      strcat(opts->trace, "/cp_ul_long_1mb.pcap");
-      // opts->trace = "cp_ul_1mb_big.pcap";
-      opts->r_active = 1;
-      /* if no nb runs is specified */
-      if (i + 1 >= argc - 1)
-        return (ENOENT);
-      char *token = strtok((argv[i + 1]), ",");
-      int j = 0;
-      while (token != NULL && j < 3) {
-        opts->range[j] = atoi(token);
-        token = strtok(NULL, ",");
-        j++;
-      }
-      i++;
-      continue;
-    } else if (!strcmp(argv[i], "--cp-ul-short-r")) {
-      strcat(opts->trace, "/cp_ul_short_1mb.pcap");
-      // opts->trace = "cp_ul_1mb_small.pcap";
-      opts->r_active = 1;
-      /* if no nb runs is specified */
-      if (i + 1 >= argc - 1)
-        return (ENOENT);
-      char *token = strtok((argv[i + 1]), ",");
-      int j = 0;
-      while (token != NULL && j < 3) {
-        opts->range[j] = atoi(token);
-        token = strtok(NULL, ",");
-        j++;
-      }
-      i++;
-      continue;
-    } else if (!strcmp(argv[i], "--up-dl-short-r")) {
-      strcat(opts->trace, "/up_dl_short_1mb.pcap");
-      // opts->trace = "up_dl_1mb.pcap";
-      opts->r_active = 1;
-      /* if no nb runs is specified */
-      if (i + 1 >= argc - 1)
-        return (ENOENT);
-      char *token = strtok((argv[i + 1]), ",");
-      int j = 0;
-      while (token != NULL && j < 3) {
-        opts->range[j] = atoi(token);
-        token = strtok(NULL, ",");
-        j++;
-      }
-      i++;
-      continue;
-    } else if (!strcmp(argv[i], "--up-ul-long-r")) {
-      strcat(opts->trace, "/up_ul_long_1mb.pcap");
-      // opts->trace = "up_ul_1mb.pcap";
-      opts->r_active = 1;
-      /* if no nb runs is specified */
-      if (i + 1 >= argc - 1)
-        return (ENOENT);
-      char *token = strtok((argv[i + 1]), ",");
-      int j = 0;
-      while (token != NULL && j < 3) {
-        opts->range[j] = atoi(token);
-        token = strtok(NULL, ",");
-        j++;
-      }
-      i++;
-      continue;
-    } else if (!strcmp(argv[i], "--up-ul-short-r")) {
-      strcat(opts->trace, "/up_ul_short_1mb.pcap");
-      // opts->trace = "up_ul_1mb.pcap";
-      opts->r_active = 1;
-      /* if no nb runs is specified */
-      if (i + 1 >= argc - 1)
-        return (ENOENT);
-      char *token = strtok((argv[i + 1]), ",");
-      int j = 0;
-      while (token != NULL && j < 3) {
-        opts->range[j] = atoi(token);
-        token = strtok(NULL, ",");
-        j++;
-      }
-      i++;
-      continue;
-    }
+   }    
 
     if (!strcmp(argv[i], "--c")) {
       opts->cont = 1;
@@ -543,23 +299,31 @@ int parse_options(const int argc, char **argv, struct cmd_opts *opts) {
   if (i + 1 > argc)
     return (EPROTO);
 
-  /* ADDITION: change file name parsing into data type to PCAP parsing */
+// -- debug purposes -- to remove later --
+//   printf("\n Parsed Command Line Options:\n");
+//   printf("--------------------------------\n");
+//   printf("Trace path      : %s\n", opts->trace);
+//   printf("Number of runs  : %u\n", opts->nbruns);
+//   printf("Source MAC      : %s\n", opts->src_mac);
+//   printf("Destination MAC : %s\n", opts->dst_mac);
+//   printf("VLAN            : %s\n", opts->vlan);
+//   printf("NUMA Core       : %d\n", opts->numacore);
+//   printf("Continuous mode : %s\n", opts->cont ? "true" : "false");
+//   printf("Random MAC?     : %s\n", opts->random_mac ? "true" : "false");
+//   printf("Sequential?     : %s\n", opts->seq_active ? "true" : "false");
+//   printf("Range mode      : %s\n", opts->r_active ? "true" : "false");
 
-  // if (!strcmp(argv[i], "--cp-dl")) {
-  //     opts->trace = "0919_attack3.pcap";
-  // }
-  // else if (!strcmp(argv[i], "--cp-ul")) {
-  //     opts->trace = "du_cp_ul.pcap";
-  // }
-  // else if (!strcmp(argv[i], "--up-dl")) {
-  //     opts->trace = "du_cp_ul.pcap";
-  // }
-  // /* or user can input their own PCAP */
-  // else{
-  //     opts->trace = argv[i];
-  // }
+// if (opts->r_active) {
+//     printf("Range values    : %d to %d step %d\n", opts->range[0], opts->range[1], opts->range[2]);
+// }
 
-  // opts->trace = argv[i];
+// printf("PCI devices     : ");
+// for (int j = 0; opts->pcicards && opts->pcicards[j]; j++) {
+//     printf("%s ", opts->pcicards[j]);
+// }
+// printf("\n--------------------------------\n\n");
+
+
 
   opts->pcicards = str_to_pcicards_list(opts, argv[i]);
   return (0);
@@ -632,8 +396,8 @@ int check_needed_memory(const struct cmd_opts *opts,
   // printf("-> Needed Hugepages of 1 Go = %lu\n", dpdk->pool_sz);
   return (0);
 }
-
 int main(const int argc, char **argv) {
+
   struct cmd_opts opts;
   struct cpus_bindings cpus;
   struct dpdk_ctx dpdk;
