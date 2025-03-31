@@ -11,6 +11,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <netinet/in.h>
+#include <unistd.h>  
 
 #include <rte_ethdev.h>
 
@@ -20,6 +22,9 @@
 #include <time.h>
 
 #define TIME_TO_WAIT 1
+#define LISTEN_PORT 9090
+#define BUFFER_SIZE 2048
+
 
 struct trace_entry {
   const char *flag;
@@ -497,6 +502,56 @@ int main(const int argc, char **argv) {
       return (ENOENT);
     }
     /* start tx threads and wait to start to send pkts */
+
+    int sockfd;
+    struct sockaddr_in server_addr, client_addr;
+    socklen_t client_len = sizeof(client_addr);
+    char buffer[BUFFER_SIZE];
+
+    // Create UDP socket
+    if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
+        perror("Socket creation failed");
+        goto mainExit;
+    }
+
+    // Allow address reuse
+    int opt = 1;
+    if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
+        perror("setsockopt failed");
+        close(sockfd);
+        goto mainExit;
+    }
+
+    // Bind to port
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_addr.s_addr = INADDR_ANY;
+    server_addr.sin_port = htons(LISTEN_PORT);
+
+    if (bind(sockfd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
+        perror("Bind failed");
+        close(sockfd);
+        goto mainExit;
+    }
+
+    printf("UDP Server listening on port %d...\n", LISTEN_PORT);
+
+    // Receive data
+    ssize_t bytes_received = recvfrom(sockfd, buffer, BUFFER_SIZE - 1, 0,
+                                      (struct sockaddr *)&client_addr, &client_len);
+    if (bytes_received < 0) {
+        perror("recvfrom failed");
+        close(sockfd);
+        goto mainExit;
+    }
+
+    buffer[bytes_received] = '\0'; // Null-terminate the received data
+
+    // printf("Received message: \"%s\" from %s:%d\n",
+    //        buffer,
+    //        inet_ntoa(client_addr.sin_addr),
+    //        ntohs(client_addr.sin_port));
+
+    close(sockfd);
 
     while (1) {
       clock_gettime(CLOCK_REALTIME, &start);
