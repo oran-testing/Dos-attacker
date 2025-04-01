@@ -1,20 +1,20 @@
 #!/bin/bash
 
 if [ $EUID -eq 0 ]; then
-	echo "This script should not be run as root"
-	exit 1
+  echo "This script should not be run as root"
+  exit 1
 fi
 
 SCRIPT_DIR=$(realpath .)
 
 if [ -e build ]; then
-	echo "build exists exiting..."
-	exit 0
+  echo "build exists exiting..."
+  exit 0
 fi
 
 if [ -z DPDK_Makefile ]; then
-	echo "No makefile exiting..."
-	exit 1
+  echo "No makefile exiting..."
+  exit 1
 fi
 
 PS4="[CUFH attacker build] "
@@ -28,6 +28,11 @@ tar -xvf ./dpdk-19.11.14.tar.xz
 rm -f ./dpdk-19.11.14.tar.xz
 
 cd dpdk-stable-19.11.14/
+
+sed -i \
+  -e 's|DIRS-$(CONFIG_RTE_EAL_IGB_UIO) += igb_uio||g' \
+  -e 's|DIRS-$(CONFIG_RTE_KNI_KMOD) += kni||g' \
+  ./kernel/linux/Makefile
 
 make defconfig O=x86_64-native-linuxapp-gcc
 make -j$(nproc) O=x86_64-native-linuxapp-gcc/
