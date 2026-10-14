@@ -1,7 +1,7 @@
 FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update -y && apt-get install -y gcc g++ make xz-utils dpdk-dev libnuma-dev wget linux-headers-$(uname -r)
+RUN apt-get update -y && apt-get install -y gcc g++ make xz-utils dpdk-dev libnuma-dev wget linux-headers-generic
 
 WORKDIR /app
 
